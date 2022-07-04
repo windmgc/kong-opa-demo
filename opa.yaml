@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa
+  namespace: default
+  labels:
+    app: opa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opa
+  template:
+    metadata:
+      labels:
+        app: opa
+    spec:
+      volumes:
+        - name: opa-conf-volume
+          configMap:
+            name: opa-policy
+      containers:
+      - name: opa
+        image: openpolicyagent/opa:latest
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: opa-conf-volume
+          mountPath: /policies
+        ports:
+        - containerPort: 8181
+        args:
+          - "run"
+          - "--ignore=.*"
+          - "--server"
+          - "--set=decision_logs.console=true"
+          - "--log-level=debug"
+          - "--log-format=text"
+          - "/policies"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa
+  namespace: default
+spec:
+  selector:
+    app: opa
+  ports:
+  - port: 8181
+    targetPort: 8181
+    name: opa-http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policy
+  namespace: default
+data:
+  opa.rego: |
+    package opolicy
+
+    import future.keywords.in
+
+    default allow = false
+
+    allow {
+      input.request.http.method == "POST"
+      regex.match(`^/login/\d+$`, input.request.http.path)
+      input.service.name == "user-service"
+    }
+
+    allow {
+      input.request.http.method == "GET"
+      regex.match(`^/users/\d+$`, input.request.http.path)
+      [ result ] := regex.find_all_string_submatch_n(`^/users/(\d+)$`, input.request.http.path, -1)
+      uid := result[1]
+      input.service.name == "user-service"
+      [_, payload, _] := io.jwt.decode(input.request.http.headers.token)
+      payload.user.user_id == uid
+    }
+
+    allow {
+      input.request.http.method == "GET"
+      regex.match(`^/articles/\d+$`, input.request.http.path)
+      input.service.name == "article-service"
+      [_, payload, _] := io.jwt.decode(input.request.http.headers.token)
+      role := payload.user.role
+      role in {"Author", "Viewer"}
+    }
+
+    allow {
+      input.request.http.method == "POST"
+      regex.match(`^/articles$`, input.request.http.path)
+      input.service.name == "article-service"
+      [_, payload, _] := io.jwt.decode(input.request.http.headers.token)
+      role := payload.user.role
+      role == "Author"
+    }

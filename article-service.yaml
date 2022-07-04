@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: article-service
+  namespace: default
+  labels:
+    app: article-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: article-service
+  template:
+    metadata:
+      labels:
+        app: article-service
+    spec:
+      containers:
+      - name: article-service
+        image: windmgc/opa-demo-article-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8082
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: article-service
+  namespace: default
+spec:
+  selector:
+    app: article-service
+  ports:
+  - port: 8082
+    targetPort: 8082
+    name: article-service-http
